@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::config;
 use crate::domain::{character, item};
@@ -22,6 +23,7 @@ pub struct Dos2EditorApp {
     item_filter: String,
     selected_item: Option<usize>,
     selected_party: Option<usize>,
+    fonts_configured: bool,
 }
 
 impl Default for Dos2EditorApp {
@@ -49,12 +51,17 @@ impl Default for Dos2EditorApp {
             item_filter: String::new(),
             selected_item: None,
             selected_party: Some(0),
+            fonts_configured: false,
         }
     }
 }
 
 impl eframe::App for Dos2EditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if !self.fonts_configured {
+            install_chinese_font(ctx);
+            self.fonts_configured = true;
+        }
         let mut language_changed = false;
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -143,6 +150,30 @@ impl eframe::App for Dos2EditorApp {
             }
         });
     }
+}
+
+fn install_chinese_font(ctx: &egui::Context) {
+    let font_path = PathBuf::from(r"C:\Windows\Fonts\NotoSansSC-VF.ttf");
+    let Ok(bytes) = std::fs::read(&font_path) else {
+        return;
+    };
+    let mut fonts = egui::FontDefinitions::default();
+    let name = "noto_sans_sc".to_owned();
+    fonts.font_data.insert(
+        name.clone(),
+        Arc::new(egui::FontData::from_owned(bytes).tweak(egui::FontTweak {
+            scale: 0.9,
+            ..Default::default()
+        })),
+    );
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        fonts
+            .families
+            .entry(family)
+            .or_default()
+            .insert(0, name.clone());
+    }
+    ctx.set_fonts(fonts);
 }
 
 impl Dos2EditorApp {
