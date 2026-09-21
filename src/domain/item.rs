@@ -32,6 +32,19 @@ pub fn items(resource: &Resource) -> Vec<Item<'_>> {
         .collect()
 }
 
+/// Returns an item node by its stable position in the saved `Items` list.
+/// The position is the same one reported by [`items`].
+pub fn item_node_mut(resource: &mut Resource, index: usize) -> Option<&mut Node> {
+    resource
+        .regions
+        .get_mut("Items")?
+        .child_mut("ItemFactory")?
+        .child_mut("Items")?
+        .children
+        .get_mut("Item")?
+        .get_mut(index)
+}
+
 pub struct Item<'a> {
     node: &'a Node,
     creator: Option<&'a Node>,
@@ -304,5 +317,13 @@ mod tests {
                 .attr("Strength"),
             Some(&AttributeValue::I32(4))
         );
+    }
+
+    #[test]
+    fn mutable_lookup_uses_the_same_item_index_as_the_read_view() {
+        let mut resource = sample_resource();
+        let node = item_node_mut(&mut resource, 0).unwrap();
+        ItemMut::new(node).set_stats_id("ARM_Helmet_A");
+        assert_eq!(items(&resource)[0].stats_id(), Some("ARM_Helmet_A"));
     }
 }

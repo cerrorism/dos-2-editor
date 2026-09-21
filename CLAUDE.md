@@ -50,18 +50,21 @@ below as "Implemented and passing" — the Phase 0–2 scaffold and format layer
   including `Stats`, `Amount`, nested stats/rune/`PermanentBoost` values, and same-index
   Creator handles. `examples/dump_items.rs` prints the typed real-save summary (an optional
   item index prints its complete raw node for schema investigation).
+- `src/app.rs` also has the first item-first panel: a Stats-ID search list and focused
+  editor for existing Stats, Amount, Slot, nested Level/name indices, rune slots, and
+  PermanentBoost fields. It works in memory only until the safe write path is added.
 - `examples/roundtrip_lsf.rs` / `examples/roundtrip_pak.rs` — non-mutating real-file
   round-trip verifiers.
 
 **Still not started / incomplete:**
 - `src/domain/character.rs` remains an empty stub. `src/domain/item.rs` is a deliberately
-  partial Phase 3 implementation; dedicated item-panel controls, custom name/description
-  mutators, tags, and ownership editing remain Phase 4 work.
+  partial Phase 3/4 implementation; custom name/description, tags, ownership editing,
+  per-owner inventory grouping, and all write-path work remain.
 - `src/gamedata/*` — empty stubs. Phase 5 in the plan (game-data stat/localization catalog
   for item names/rarity) — the user explicitly wants this built early, not deferred, once
   the domain layer exists.
-- The actual item/character editing UI in `app.rs` — currently just a save-file picker
-  shell, no save is actually loaded/parsed/edited yet.
+- The character UI and save-write UI remain unimplemented. The item editor is intentionally
+  restricted to modifying in-memory values until scratch-copy backup/reload testing exists.
 - `src/domain/ids.rs` — empty stub for Phase 7 (new-item creation / GUID minting) —
   explicitly lower priority, no prior art exists anywhere (confirmed during planning).
 
