@@ -9,6 +9,13 @@ This is a personal/fun project for the user — no CI, no need for generality be
 DOS2:DE, hardcoded assumptions are fine where they simplify things. Priority order per the
 user: **item editing first**, character editing second.
 
+## Git
+
+Local repo only (no remote) — initialized with `git init`, `main` branch. First commit
+(`Scaffold DOS2:DE savegame editor: PAK/LSF format layer`) covers everything described
+below as "Implemented and passing" — the Phase 0–2 scaffold and format layer. `target/` and
+`*.lsv.bak*` are gitignored. Commit as you go; there's no other backstop for this work.
+
 ## Status (Phases 0–2 of the plan: done and verified; Phase 3 onward: not started)
 
 **Implemented and passing `cargo test` (12/12) + clean `cargo clippy --all-targets`:**
