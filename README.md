@@ -12,11 +12,11 @@ out to lslib/Divine.exe at runtime.
 
 ## Status
 
-Early. The binary format layer (PAK container + LSF resource parser/writer) is
-implemented and passes structural round-trip tests against synthetic data. The
-Characters/Items domain layer and the actual editing UI are not yet built. See
-[CLAUDE.md](CLAUDE.md) for the detailed status and a handover doc for whoever picks this
-up next.
+Early. The binary format layer has passed both synthetic tests and structural
+round trips against a real DOS2:DE save. The app can load that save's `globals.lsf`
+and expose its editable in-memory raw tree; it intentionally cannot write a save yet.
+Item accessors are under way, while the dedicated item/character panels and game-data
+catalog remain to be built. See [CLAUDE.md](CLAUDE.md) for verification details.
 
 ## Build
 

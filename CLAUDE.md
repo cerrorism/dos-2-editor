@@ -16,7 +16,7 @@ Local repo only (no remote) — initialized with `git init`, `main` branch. Firs
 below as "Implemented and passing" — the Phase 0–2 scaffold and format layer. `target/` and
 `*.lsv.bak*` are gitignored. Commit as you go; there's no other backstop for this work.
 
-## Status (Phases 0–2 of the plan: done and verified; Phase 3 onward: not started)
+## Status (Phases 0–2 done; Phase 3 started and verified against a real save)
 
 **Implemented and passing `cargo test` (12/12) + clean `cargo clippy --all-targets`:**
 - `src/format/primitives.rs` — LE byte cursor `Reader`/`Writer`, plus GUID read/write via
@@ -44,14 +44,19 @@ below as "Implemented and passing" — the Phase 0–2 scaffold and format layer
   globals.lsf`). **This is the tool to run first once a real save is available** — it
   directly confirms or corrects every Characters/Items node-path assumption in the plan.
 - `src/app.rs`/`main.rs`/`config.rs`/`save_file.rs` — Phase 0 scaffold only: an egui window
-  with a folder picker and a savegame list (by discovery, not by parsing yet). No actual
-  save loading/editing wired up.
+  with a folder picker and a savegame list. Selecting a save now loads/parses `globals.lsf`
+  into memory and presents an editable raw tree; the UI deliberately has no write button yet.
+- `src/domain/item.rs` — thin typed item views/mutators for the verified Items hierarchy,
+  including `Stats`, `Amount`, nested stats/rune/`PermanentBoost` values, and same-index
+  Creator handles. `examples/dump_items.rs` prints the typed real-save summary (an optional
+  item index prints its complete raw node for schema investigation).
+- `examples/roundtrip_lsf.rs` / `examples/roundtrip_pak.rs` — non-mutating real-file
+  round-trip verifiers.
 
-**Not yet started** (everything from the plan's Phase 3 onward):
-- `src/domain/character.rs`, `src/domain/item.rs` — currently empty stub files. This is
-  the next real chunk of work: typed getters/setters over `format::node::Node` for the
-  Characters/Items region layout the plan documents in detail (node paths, attribute
-  names, the `PermanentBoost` bonus bag, rune slots, tags, etc.).
+**Still not started / incomplete:**
+- `src/domain/character.rs` remains an empty stub. `src/domain/item.rs` is a deliberately
+  partial Phase 3 implementation; dedicated item-panel controls, custom name/description
+  mutators, tags, and ownership editing remain Phase 4 work.
 - `src/gamedata/*` — empty stubs. Phase 5 in the plan (game-data stat/localization catalog
   for item names/rarity) — the user explicitly wants this built early, not deferred, once
   the domain layer exists.
@@ -107,21 +112,36 @@ below as "Implemented and passing" — the Phase 0–2 scaffold and format layer
 
 ## Verification status
 
-Everything so far is verified only against **synthetic data** (`cargo test`'s inline
-round-trip tests: `parse(serialize(x)) == x` for both PAK and LSF, at multiple compression
-methods). **Nothing has been checked against a real DOS2:DE save yet** — the user said
-they'd supply real save/game-install paths when we get there. Per the plan's risk
-checklist, these are the concrete unknowns still to resolve empirically, in priority order:
+Synthetic tests still cover the format layer, and the supplied real DOS2:DE save has now
+been inspected successfully:
 
-1. Run `cargo run --example dump_pak -- "<real save>.lsv"` — confirms the actual file list
-   inside a real save (expected: `meta.lsf`, `globals.lsf`, a screenshot, maybe more) and
-   whether `Solid` ever shows up in practice.
-2. Run `cargo run --example dump_lsf -- "<real save>.lsv" globals.lsf` — confirms the
-   Characters/Items node-path assumptions from the plan against real structure, and
-   whether `MetadataFormat` is `None` or `KeysAndAdjacency` in practice.
-3. Once `domain/item.rs`/`domain/character.rs` exist: build a `roundtrip_pak.rs` /
-   `roundtrip_lsf.rs` example (per the plan) that round-trips a real save's bytes and
-   reports whether it's byte-identical or where it diverges.
+- Save: `...\\PlayerProfiles\\cerror1\\Savegames\\Story\\Edit\\Edit.lsv` — a 7-entry,
+  non-solid PAK; every entry uses zlib. `globals.lsf` is 5,870,522 bytes.
+- `dump_items` found 715 items. The real shape confirms `Items[0].Item[*]` and nested
+  `Stats`/`RuneSlot`/`PermanentBoost`. Item owner/parent IDs and Creator handles are
+  `ULongLong` engine handles (not UUIDs). Stackable items carry `Amount`; many
+  non-stackables omit it entirely. Equipped-item rarity appears in `Stats.ItemType`.
+- `roundtrip_lsf`: parse → serialize → parse is structurally equal, but not byte-identical
+  (source 5,870,522 bytes; normalized LZ4 writer output 7,604,542 bytes).
+- `roundtrip_pak`: all 7 uncompressed entry contents survive intact, but the complete
+  archive is not byte-identical (source 5,419,453 bytes; rebuilt output 5,419,471 bytes).
+  The project is therefore using the plan's documented semantic-equivalence fallback until
+  a scratch-copy edit is manually tested in-game.
+- Game install: `D:\\SteamLibrary\\steamapps\\common\\Divinity Original Sin 2`. Definitive
+  Edition data uses `DefEd\\Data\\Shared.pak` for generated item stat files (including
+  `Public/Shared/Stats/Generated/Data/{Armor,Object,Potion,Shield}.txt` and
+  `Weapon.txt`) and `DefEd\\Data\\Localization\\English.pak` for English localization,
+  not a single `Data.pak`.
+
+Per the plan's risk checklist, these are the concrete unknowns still to resolve empirically,
+in priority order:
+
+1. Confirm the real save's `MetadataFormat` (`None` vs `KeysAndAdjacency`) explicitly; the
+   current parser accepts either but does not expose that diagnostic yet.
+2. Confirm the character paths and PlayerUpgrade semantics against the real tree before
+   implementing the dedicated character panel.
+3. Build the item panel and a scratch-copy write-path test that changes one known field,
+   reloads it structurally, and preserves a `.bak` backup.
 4. Eventually: confirm an edited save (written with our always-`MetadataFormat::None` LSF
    shape) actually still loads in the real game — this can't be verified in an agent
    environment at all; it needs the user to try it by hand.
