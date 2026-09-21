@@ -6,7 +6,7 @@ use crate::format::compression::CompressionMethod;
 use crate::format::lsf;
 use crate::format::node::{AttributeValue, Node, NodeAttribute, Resource};
 use crate::format::pak::Pak;
-use crate::gamedata::catalog::StatsCatalog;
+use crate::gamedata::catalog::{DisplayLanguage, StatsCatalog};
 use crate::save_file;
 
 pub struct Dos2EditorApp {
@@ -18,6 +18,7 @@ pub struct Dos2EditorApp {
     pak: Option<Pak>,
     catalog: Option<StatsCatalog>,
     catalog_status: String,
+    display_language: DisplayLanguage,
     item_filter: String,
     selected_item: Option<usize>,
     selected_party: Option<usize>,
@@ -44,6 +45,7 @@ impl Default for Dos2EditorApp {
             pak: None,
             catalog: None,
             catalog_status: String::new(),
+            display_language: DisplayLanguage::SimplifiedChinese,
             item_filter: String::new(),
             selected_item: None,
             selected_party: Some(0),
@@ -53,6 +55,7 @@ impl Default for Dos2EditorApp {
 
 impl eframe::App for Dos2EditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let mut language_changed = false;
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if ui.button("Open Save Folder…").clicked() {
@@ -76,9 +79,25 @@ impl eframe::App for Dos2EditorApp {
                     self.save_edited_copy();
                 }
                 ui.separator();
+                egui::ComboBox::from_id_salt("display_language")
+                    .selected_text(self.display_language.label())
+                    .show_ui(ui, |ui| {
+                        for language in DisplayLanguage::ALL {
+                            language_changed |= ui
+                                .selectable_value(
+                                    &mut self.display_language,
+                                    language,
+                                    language.label(),
+                                )
+                                .changed();
+                        }
+                    });
                 ui.label(&self.status_msg);
             });
         });
+        if language_changed && self.resource.is_some() {
+            self.load_game_data();
+        }
 
         let mut requested_load = None;
         egui::SidePanel::left("save_list").show(ctx, |ui| {
@@ -154,11 +173,12 @@ impl Dos2EditorApp {
 
     fn load_game_data(&mut self) {
         let game_root = PathBuf::from(r"D:\SteamLibrary\steamapps\common\Divinity Original Sin 2");
-        match StatsCatalog::load(&game_root) {
+        match StatsCatalog::load(&game_root, self.display_language) {
             Ok(catalog) => {
                 self.catalog_status = format!(
-                    "English item names loaded ({} names from game data).",
-                    catalog.localization_count()
+                    "{} item names loaded ({} names from game data).",
+                    self.display_language.label(),
+                    catalog.localization_count(),
                 );
                 self.catalog = Some(catalog);
             }
@@ -225,6 +245,7 @@ struct ItemListRow {
     stats_id: String,
     amount: Option<i32>,
     item_type: Option<String>,
+    equipped: bool,
 }
 
 fn party_inventory_editor(
@@ -291,6 +312,7 @@ fn party_inventory_editor(
                 stats_id,
                 amount: entry.amount(),
                 item_type: entry.item_type().map(str::to_owned),
+                equipped: entry.is_equipped(),
             })
         })
         .collect();
@@ -303,23 +325,22 @@ fn party_inventory_editor(
         egui::ScrollArea::vertical()
             .max_height(360.0)
             .show(&mut columns[0], |ui| {
-                for row in &rows {
-                    let amount = row
-                        .amount
-                        .filter(|amount| *amount > 1)
-                        .map(|amount| format!(" ×{amount}"))
-                        .unwrap_or_default();
-                    let rarity = row.item_type.as_deref().unwrap_or("Item");
-                    if ui
-                        .selectable_label(
-                            *selected_item == Some(row.index),
-                            format!("{}  [{rarity}]{amount}", row.display_name),
-                        )
-                        .on_hover_text(&row.stats_id)
-                        .clicked()
-                    {
-                        *selected_item = Some(row.index);
-                    }
+                if selected_party.is_some() {
+                    item_list_section(
+                        ui,
+                        "Equipped",
+                        rows.iter().filter(|row| row.equipped),
+                        selected_item,
+                    );
+                    ui.separator();
+                    item_list_section(
+                        ui,
+                        "Backpack",
+                        rows.iter().filter(|row| !row.equipped),
+                        selected_item,
+                    );
+                } else {
+                    item_list_section(ui, "Saved items", rows.iter(), selected_item);
                 }
             });
         if let Some(index) = *selected_item {
@@ -333,6 +354,34 @@ fn party_inventory_editor(
             columns[1].label("Select an item to view and edit its saved fields.");
         }
     });
+}
+
+fn item_list_section<'a>(
+    ui: &mut egui::Ui,
+    heading: &str,
+    rows: impl Iterator<Item = &'a ItemListRow>,
+    selected_item: &mut Option<usize>,
+) {
+    let rows: Vec<&ItemListRow> = rows.collect();
+    ui.strong(format!("{heading} ({})", rows.len()));
+    for row in rows {
+        let amount = row
+            .amount
+            .filter(|amount| *amount > 1)
+            .map(|amount| format!(" ×{amount}"))
+            .unwrap_or_default();
+        let rarity = row.item_type.as_deref().unwrap_or("Item");
+        if ui
+            .selectable_label(
+                *selected_item == Some(row.index),
+                format!("{}  [{rarity}]{amount}", row.display_name),
+            )
+            .on_hover_text(&row.stats_id)
+            .clicked()
+        {
+            *selected_item = Some(row.index);
+        }
+    }
 }
 
 fn character_name(character: &character::Character<'_>) -> String {
@@ -427,10 +476,68 @@ fn item_editor(ui: &mut egui::Ui, index: usize, node: &mut Node, catalog: Option
             }
         }
         if let Some(boosts) = stats.child_mut("PermanentBoost") {
-            egui::CollapsingHeader::new("Permanent boosts")
-                .show(ui, |ui| raw_node_editor(ui, boosts));
+            permanent_boost_editor(ui, boosts);
         }
     }
+    if let Some(generation) = node
+        .child_mut("Generation")
+        .and_then(|node| node.child_mut("ItemGeneration"))
+    {
+        generated_bonus_editor(ui, generation);
+    }
+}
+
+fn permanent_boost_editor(ui: &mut egui::Ui, boosts: &mut Node) {
+    egui::CollapsingHeader::new("Permanent bonuses")
+        .default_open(true)
+        .show(ui, |ui| {
+            let mut names: Vec<String> = boosts.attributes.keys().cloned().collect();
+            names.sort();
+            for name in names {
+                ui.horizontal(|ui| {
+                    ui.label(&name);
+                    if let Some(attribute) = boosts.attributes.get_mut(&name) {
+                        raw_attribute_editor(ui, attribute);
+                    }
+                });
+            }
+            for (kind, label) in [("Abilities", "Abilities"), ("Talents", "Talents")] {
+                let Some(values) = boosts.children.get_mut(kind) else {
+                    continue;
+                };
+                for (index, value) in values.iter_mut().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{label} {}", index + 1));
+                        if let Some(attribute) = value.attributes.get_mut("Object") {
+                            raw_attribute_editor(ui, attribute);
+                        } else {
+                            ui.label("None");
+                        }
+                    });
+                }
+            }
+        });
+}
+
+fn generated_bonus_editor(ui: &mut egui::Ui, generation: &mut Node) {
+    let Some(boosts) = generation.children.get_mut("Boost") else {
+        return;
+    };
+    egui::CollapsingHeader::new("Generated item bonuses")
+        .default_open(true)
+        .show(ui, |ui| {
+            ui.small("These are the rolled bonus definitions saved on this generated item.");
+            for (index, boost) in boosts.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(format!("Bonus {}", index + 1));
+                    if let Some(attribute) = boost.attributes.get_mut("Object") {
+                        raw_attribute_editor(ui, attribute);
+                    } else {
+                        ui.label("<missing>");
+                    }
+                });
+            }
+        });
 }
 
 fn string_attribute_editor(ui: &mut egui::Ui, node: &mut Node, name: &str) {

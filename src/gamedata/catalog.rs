@@ -1,4 +1,4 @@
-//! Lightweight item-template and English-name catalog built from the installed game.
+//! Lightweight item-template and localized-name catalog built from the installed game.
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -10,10 +10,39 @@ use crate::format::pak::Pak;
 
 use super::localization;
 
-const ENGLISH_PAK: &str = "DefEd/Data/Localization/English.pak";
-const ENGLISH_XML: &str = "Localization/English/english.xml";
 const SHARED_PAK: &str = "DefEd/Data/Shared.pak";
 const ROOT_TEMPLATES: &str = "Public/Shared/RootTemplates/_merged.lsf";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DisplayLanguage {
+    English,
+    SimplifiedChinese,
+}
+
+impl DisplayLanguage {
+    pub const ALL: [Self; 2] = [Self::SimplifiedChinese, Self::English];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::English => "English",
+            Self::SimplifiedChinese => "简体中文",
+        }
+    }
+
+    fn pak_path(self) -> &'static str {
+        match self {
+            Self::English => "DefEd/Data/Localization/English.pak",
+            Self::SimplifiedChinese => "DefEd/Data/Localization/Chinese/Chinese.pak",
+        }
+    }
+
+    fn xml_path(self) -> &'static str {
+        match self {
+            Self::English => "Localization/English/english.xml",
+            Self::SimplifiedChinese => "Localization/Chinese/chinese.xml",
+        }
+    }
+}
 
 #[derive(Default)]
 pub struct StatsCatalog {
@@ -23,11 +52,11 @@ pub struct StatsCatalog {
 }
 
 impl StatsCatalog {
-    pub fn load(game_root: &Path) -> Result<Self, String> {
-        let english = Pak::open(&game_root.join(ENGLISH_PAK))?.read(ENGLISH_XML)?;
-        let xml = std::str::from_utf8(&english)
-            .map_err(|error| format!("English localization is not UTF-8: {error}"))?;
-        let localized = localization::parse_english_xml(xml);
+    pub fn load(game_root: &Path, language: DisplayLanguage) -> Result<Self, String> {
+        let bytes = Pak::open(&game_root.join(language.pak_path()))?.read(language.xml_path())?;
+        let xml = std::str::from_utf8(&bytes)
+            .map_err(|error| format!("{} localization is not UTF-8: {error}", language.label()))?;
+        let localized = localization::parse_xml(xml);
 
         let templates = Pak::open(&game_root.join(SHARED_PAK))?.read(ROOT_TEMPLATES)?;
         let resource = lsf::parse(&templates)?;

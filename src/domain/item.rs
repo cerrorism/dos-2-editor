@@ -74,6 +74,12 @@ impl<'a> Item<'a> {
     pub fn slot(&self) -> Option<u16> {
         u16_attr(self.node, "Slot")
     }
+    /// Equipped gear uses the character equipment slots (0–10); ordinary inventory
+    /// grid positions begin later. A missing slot on a gear record is also equipped.
+    pub fn is_equipped(&self) -> bool {
+        self.item_type()
+            .is_some_and(|_| self.slot().is_none_or(|slot| slot <= 10))
+    }
     pub fn current_template(&self) -> Option<Uuid> {
         match self.node.attr("CurrentTemplate")? {
             AttributeValue::Uuid(value) => Some(*value),

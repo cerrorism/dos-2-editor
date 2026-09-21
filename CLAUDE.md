@@ -56,8 +56,9 @@ The repository is on `main` and pushes to `git@github.com:cerrorism/dos-2-editor
 - `src/domain/character.rs` identifies player characters from `Stats.IsPlayer`, reads custom
   player name/origin fallback, and follows their inventory handles. The supplied save yields
   Fane (23), Ifan (20), 洛思/Lohse (65), and Beast (20) inventory items.
-- `src/gamedata/localization.rs`/`catalog.rs` parse `English.pak` and `Shared.pak` directly:
-  92,210 English entries, 2,587 template names, and 505 stat names were observed.
+- `src/gamedata/localization.rs`/`catalog.rs` parse the selected `English.pak` or
+  Simplified Chinese pack plus `Shared.pak` directly. The observed catalogs contain 92,210
+  English or 92,161 Simplified Chinese entries, 2,587 template names, and 505 stat names.
 - `examples/roundtrip_lsf.rs` / `examples/roundtrip_pak.rs` — non-mutating real-file
   round-trip verifiers.
 

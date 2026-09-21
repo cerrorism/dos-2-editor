@@ -3,15 +3,24 @@ use std::path::PathBuf;
 
 use dos2_editor::domain::item;
 use dos2_editor::format::{lsf, pak::Pak};
-use dos2_editor::gamedata::catalog::StatsCatalog;
+use dos2_editor::gamedata::catalog::{DisplayLanguage, StatsCatalog};
 
 fn main() {
     let mut args = std::env::args().skip(1);
     let Some(game_root) = args.next().map(PathBuf::from) else {
-        eprintln!("usage: dump_stats_catalog <game-root> [save.lsv]");
+        eprintln!("usage: dump_stats_catalog <game-root> [save.lsv] [english|chinese]");
         std::process::exit(1);
     };
-    let catalog = StatsCatalog::load(&game_root).unwrap_or_else(|error| {
+    let save = args.next().map(PathBuf::from);
+    let language = match args.next().as_deref() {
+        Some("chinese") => DisplayLanguage::SimplifiedChinese,
+        Some("english") | None => DisplayLanguage::English,
+        Some(other) => {
+            eprintln!("unknown language: {other}");
+            std::process::exit(1);
+        }
+    };
+    let catalog = StatsCatalog::load(&game_root, language).unwrap_or_else(|error| {
         eprintln!("failed to load catalog: {error}");
         std::process::exit(1);
     });
@@ -21,7 +30,7 @@ fn main() {
         catalog.template_name_count(),
         catalog.stats_name_count()
     );
-    if let Some(save) = args.next().map(PathBuf::from) {
+    if let Some(save) = save {
         let resource = Pak::open(&save)
             .and_then(|pak| pak.read("globals.lsf"))
             .and_then(|bytes| lsf::parse(&bytes))

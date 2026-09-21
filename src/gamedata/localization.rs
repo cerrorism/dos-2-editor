@@ -1,7 +1,7 @@
-//! English localization (`english.xml`) contentuid -> visible-text lookup.
+//! Larian localization XML (`*.xml`) contentuid -> visible-text lookup.
 use std::collections::HashMap;
 
-pub fn parse_english_xml(xml: &str) -> HashMap<String, String> {
+pub fn parse_xml(xml: &str) -> HashMap<String, String> {
     let mut entries = HashMap::new();
     let mut remaining = xml;
     while let Some(attribute) = remaining.find("contentuid=\"") {
@@ -41,8 +41,7 @@ mod tests {
 
     #[test]
     fn reads_localization_entries_and_decodes_xml_entities() {
-        let entries =
-            parse_english_xml(r#"<content contentuid="h123">The &amp; &lt;Sword&gt;</content>"#);
+        let entries = parse_xml(r#"<content contentuid="h123">The &amp; &lt;Sword&gt;</content>"#);
         assert_eq!(entries.get("h123"), Some(&"The & <Sword>".to_owned()));
     }
 }

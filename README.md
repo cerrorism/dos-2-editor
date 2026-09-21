@@ -18,7 +18,8 @@ fields. **Save Edited Copy** writes a separately named save and verifies its PAK
 structure before writing; it never overwrites the selected original. The raw save tree
 is available only under **Advanced** for investigation.
 
-Item names come from the installed game's English localization and Shared templates.
+Item names come from the installed game's English or Simplified Chinese localization and
+Shared templates; choose the display language in the top bar.
 Generated/procedural equipment that has no direct template name is shown using a
 readable Stat-ID fallback for now. See [CLAUDE.md](CLAUDE.md) for verification details.
 
