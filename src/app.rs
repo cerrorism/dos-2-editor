@@ -416,11 +416,20 @@ fn item_list_section<'a>(
 }
 
 fn character_name(character: &character::Character<'_>, catalog: Option<&StatsCatalog>) -> String {
-    let name = character
-        .name()
-        .filter(|name| !name.trim().is_empty())
-        .or_else(|| character.origin_name())
-        .unwrap_or("Unnamed party member");
+    // A player-typed custom name (e.g. Lohse renamed in-game) is already
+    // in whatever language the player typed it in — show it as-is.
+    if let Some(name) = character.name().filter(|name| !name.trim().is_empty()) {
+        return name.to_owned();
+    }
+    // An un-renamed origin companion's `OriginName` (e.g. `"Fane"`) is
+    // itself the exact English UI string used elsewhere in the game's
+    // own localization text (verified against a real save: "Fane"/
+    // "Ifan"/"Beast" each match a standalone English localization entry
+    // whose translation is the expected localized companion name) — no
+    // RootTemplate lookup needed or, per investigation, even available
+    // (origin characters' `CurrentTemplate` UUIDs don't appear in any
+    // RootTemplates file at all).
+    let name = character.origin_name().unwrap_or("Unnamed party member");
     catalog
         .map(|catalog| catalog.localized_text(name))
         .unwrap_or_else(|| name.to_owned())
@@ -554,7 +563,7 @@ fn item_editor(ui: &mut egui::Ui, index: usize, node: &mut Node, catalog: Option
             }
         }
         if let Some(boosts) = stats.child_mut("PermanentBoost") {
-            permanent_boost_editor(ui, boosts);
+            permanent_boost_editor(ui, boosts, catalog);
         }
     }
     if let Some(details) = generated_details {
@@ -580,7 +589,7 @@ fn integer_attribute(node: &Node, name: &str) -> Option<i32> {
     }
 }
 
-fn permanent_boost_editor(ui: &mut egui::Ui, boosts: &mut Node) {
+fn permanent_boost_editor(ui: &mut egui::Ui, boosts: &mut Node, catalog: Option<&StatsCatalog>) {
     egui::CollapsingHeader::new("Permanent bonuses")
         .default_open(true)
         .show(ui, |ui| {
@@ -588,7 +597,7 @@ fn permanent_boost_editor(ui: &mut egui::Ui, boosts: &mut Node) {
             names.sort();
             for name in names {
                 ui.horizontal(|ui| {
-                    ui.label(&name);
+                    ui.label(boost_label(&name, catalog));
                     if let Some(attribute) = boosts.attributes.get_mut(&name) {
                         raw_attribute_editor(ui, attribute);
                     }
@@ -610,6 +619,17 @@ fn permanent_boost_editor(ui: &mut egui::Ui, boosts: &mut Node) {
                 }
             }
         });
+}
+
+/// A localized label for a known internal boost/attribute key (falling
+/// back to the raw key itself for anything not in `StatsCatalog::stat_label`'s
+/// known table), shown alongside the still-editable raw key so power
+/// users can always see/type the exact internal name.
+fn boost_label(key: &str, catalog: Option<&StatsCatalog>) -> String {
+    match catalog.and_then(|catalog| catalog.stat_label(key)) {
+        Some(label) if label != key => format!("{label} ({key})"),
+        _ => key.to_owned(),
+    }
 }
 
 fn generated_boost_ids(node: &Node) -> Vec<String> {

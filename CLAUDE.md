@@ -14,9 +14,9 @@ user: **item editing first**, character editing second.
 The repository is on `main` and pushes to `git@github.com:cerrorism/dos-2-editor.git`.
 `target/` and `*.lsv.bak*` are gitignored. Commit as you go.
 
-## Status (format, safe edited-copy workflow, party inventory UI, and first English catalog done)
+## Status (format, safe edited-copy workflow, party inventory UI, and multi-pak localized names done)
 
-**Implemented and passing `cargo test` (12/12) + clean `cargo clippy --all-targets`:**
+**Implemented and passing `cargo test` (21/21) + clean `cargo clippy --all-targets`:**
 - `src/format/primitives.rs` — LE byte cursor `Reader`/`Writer`, plus GUID read/write via
   the `uuid` crate's `from_bytes_le`/`to_bytes_le` (see "UUID" gotcha below).
 - `src/format/compression.rs` — shared `CompressionMethod` enum (`None`/`Zlib`/`Lz4`) and
@@ -57,15 +57,65 @@ The repository is on `main` and pushes to `git@github.com:cerrorism/dos-2-editor
   player name/origin fallback, and follows their inventory handles. The supplied save yields
   Fane (23), Ifan (20), 洛思/Lohse (65), and Beast (20) inventory items.
 - `src/gamedata/localization.rs`/`catalog.rs` parse the selected `English.pak` or
-  Simplified Chinese pack plus `Shared.pak` directly. The observed catalogs contain 92,210
-  English or 92,161 Simplified Chinese entries, 2,587 template names, and 505 stat names.
+  Simplified Chinese pack for UI text, **plus RootTemplates/generated-stats/item-progression
+  data merged from four content paks** (`Shared.pak`, `SharedDOS.pak`, `Origins.pak`,
+  `GameMaster.pak` — see design decision #8, this was the actual fix for most of the
+  "items don't show a name" gap: the real DOS2:DE campaign content lives in `Origins.pak`,
+  not `Shared.pak` alone). Catalogs now contain 92,210 English / 92,161 Simplified Chinese
+  localization entries, 3,691 template names, 824 RootTemplate-`Stats`-keyed names, plus a
+  separate `Stats.lsb`-derived table (see #9) covering most consumables/misc items that have
+  neither a RootTemplate `DisplayName` nor a generated-loot namegroup entry.
+- `src/format/lsb.rs` — a new, minimal **LSB** binary resource reader (FW3/DOS2:DE variant
+  only; read-only, no writer needed). Uncompressed, much simpler than LSF: one flat static
+  string dictionary, a region offset table, then a plain recursive node/attribute tree. Used
+  to read `Localization/Stats.lsb` (a `TranslatedStringKeys` table mapping Stats-ID strings
+  directly to a localization handle — the actual source of most consumable item names) and,
+  going forward, could read `ItemProgression.lsb` properly instead of the byte-scanning hack
+  in `progression_handles()` (not yet migrated — that hack still works and wasn't broken by
+  this change, just now redundant infrastructure exists to replace it cleanly).
+- `progression_group()`/`armor_class()`/`weapon_class()` in `catalog.rs` now map a generated
+  item's real resolved stat fields (`ItemGroup` for armor, `WeaponType`+`IsTwoHanded`+`Slot`
+  for weapons/shields) to the **exact, exhaustively-verified set of 63 real `RG_<Class>_
+  <Rarity>` namegroup keys** (e.g. `RG_LightArmour_Rare`, `RG_Swords_2H_Epic`,
+  `RG_Shields_Epic`) — found by dumping every real namegroup key from a real install, not
+  guessed. Also handles "Unique"-rarity generated items (still procedurally boosted, but
+  with one fixed name) via their own `ItemGroup` value as a direct namegroup key, which is
+  how the game itself keys them (no `RG_..._Unique` group exists at all).
+- `StatsCatalog::stat_label()` + `BOOST_LABELS` in `catalog.rs`: a known-key ->
+  canonical-English-label table for `PermanentBoost` attributes / `Boost` ids / ability &
+  talent ids (attributes, resistances, the ~23 school/ability ids, misc combat stats),
+  localized once at load time (not per-frame) via a precomputed `label_translations` map.
+  Wired into `app.rs`'s `permanent_boost_editor` via `boost_label()`, which shows
+  `"<localized> (<raw key>)"` next to the still-editable raw attribute. **This is a
+  reasonable approximation, not the authoritative source** — no `Stats.lsb`-equivalent
+  table for ability/attribute/talent names was found during investigation (checked
+  `Adjectives/Stats.lsb`, which is empty); the real UI presumably resolves these through
+  some other mechanism not yet identified. See design decision #9's note on this.
 - `examples/roundtrip_lsf.rs` / `examples/roundtrip_pak.rs` — non-mutating real-file
   round-trip verifiers.
 
-**Still incomplete:**
-- Generated armor title lookup now combines `ItemProgressionNames.txt`, the translation
-  handles in `ItemProgression.lsb`, and the selected localization pack. Other generated
-  categories still need the full ItemProgression group-selection map.
+**Investigated and found to already work correctly (no code change needed):** origin
+companions' names (`character_name()` in `app.rs`, via `Character::origin_name()` +
+`StatsCatalog::localized_text()`'s English-text-match trick) — verified against the real
+save that `"Fane"`/`"Ifan"`/`"Beast"` each resolve to the correct Chinese name (费恩/伊凡/
+比斯特). A hypothesis that this should instead go through the character's own `CurrentTemplate`
+UUID (mirroring how items resolve names) was tried and disproven: **origin characters'
+`CurrentTemplate`/`OriginalTemplate` UUIDs do not appear in any RootTemplates file at all**,
+across all four merged content paks — confirmed by exhaustive search. Don't re-attempt this
+without new evidence for where the character's real template identity actually lives.
+
+**Still incomplete / known gaps:**
+- A meaningful minority of `ARM_`/`WPN_` items (mostly plain `"Common"`-rarity crafted gear
+  like `WPN_CraftedDagger`, `ARM_Conjurer_Helmet`) still don't resolve through any of the
+  three name sources (RootTemplate `DisplayName`, generated namegroup, `Stats.lsb`) — these
+  fall back to `friendly_stat_name()`'s derived text (e.g. "Crafted Dagger"), which is
+  already a reasonable-looking name, just not confirmed to match the game's actual UI text.
+  Not investigated further; diminishing returns given the dramatic overall improvement
+  (verified via an ad hoc per-prefix resolution audit against the real save: most
+  categories — potions, food, scrolls, grenades, tools, quest items, containers, unique
+  items, generated armor — now resolve at or near 100%, up from many being 0%).
+- Ability/attribute/talent name localization (`stat_label()`) is a hand-maintained
+  approximation, not sourced from the game's own data — see the note above.
 - Character editing, custom item name/description, tags, ownership changes, and new-item
   creation remain unimplemented. The item editor deliberately edits existing fields only.
 - `src/domain/ids.rs` — empty stub for Phase 7 (new-item creation / GUID minting) —
@@ -115,6 +165,35 @@ The repository is on `main` and pushes to `git@github.com:cerrorism/dos-2-editor
    order for a subtle reason — see the comment right above the loop in `lsf.rs` if you need
    to touch it. Getting this backwards silently reverses sibling order (e.g. item lists),
    which the `sibling_order_is_preserved` test exists specifically to catch.
+8. **DOS2:DE's game data is split across several content paks, not just `Shared.pak`** —
+   confirmed empirically with `dump_pak` against a real install. `Origins.pak` is the actual
+   main-campaign content (`Public/DivinityOrigins_<guid>/...`, including most named/unique
+   items); `GameMaster.pak` is GM-mode content; `SharedDOS.pak` is a small DOS2-specific
+   supplement to Shared's engine-wide base. `catalog.rs`'s `CONTENT_PAKS` list merges
+   RootTemplates/generated-stats/item-progression data from all four generically (by
+   scanning each pak's entries for path patterns like `/RootTemplates/*.lsf`, not by
+   hardcoding e.g. Origins' internal GUID folder name — that GUID is real and stable but
+   there's no reason to depend on it). Only the per-language localization pak
+   (`English.pak`/`Chinese.pak`) is a single file covering the whole game's text; that part
+   was already correct. Patches (`Patch1.pak`..`Patch10.pak`) were checked exhaustively and
+   found to carry only zero-length placeholder entries for every RootTemplates/Stats path —
+   i.e. no real overrides — so they're intentionally not merged.
+9. **Three independent, non-overlapping sources feed item display names**, discovered by
+   inspecting real game files rather than guessing: (a) a RootTemplate's own `DisplayName`
+   attribute, keyed by the item's `CurrentTemplate` UUID or its `Stats` id — mainly
+   equipment/named items; (b) the generated-loot namegroup system
+   (`ItemProgressionNames.txt` "new namegroup"/"add name" grammar, keyed by a `RG_<Class>_
+   <Rarity>` string built from the item's real stat fields, or by the item's own `ItemGroup`
+   value directly for "Unique"-rarity generated items) resolved to a handle via
+   `ItemProgression.lsb`; (c) **`Localization/Stats.lsb`** (an LSB `TranslatedStringKeys`
+   table, Stats-ID string -> handle) — this is where potions/food/scrolls/tools/grenades
+   actually get their name, since they have neither (a) nor (b) (verified directly: e.g.
+   `POTION_Minor_Healing_Potion`'s RootTemplate has no `DisplayName` attribute at all, and
+   its resolved stat fields have no `ItemGroup` either). `StatsCatalog::display_name` tries
+   (a) then (c) in that order; `generated_name` is (b) and is tried separately by callers as
+   a fallback. No equivalent "internal id -> handle" table was found for ability/attribute/
+   talent names (`Adjectives/Stats.lsb` — despite the promising name — is empty in a real
+   install), so those still rely on the coarser `BOOST_LABELS` approximation.
 
 ## Verification status
 
@@ -137,7 +216,15 @@ been inspected successfully:
   Edition data uses `DefEd\\Data\\Shared.pak` for generated item stat files (including
   `Public/Shared/Stats/Generated/Data/{Armor,Object,Potion,Shield}.txt` and
   `Weapon.txt`) and `DefEd\\Data\\Localization\\English.pak` for English localization,
-  not a single `Data.pak`.
+  not a single `Data.pak`. **Superseded/expanded by design decision #8**: RootTemplates and
+  generated-stats data is also split into `Origins.pak`/`GameMaster.pak`/`SharedDOS.pak`.
+- Item-name resolution against the real save, before vs. after this session's catalog work
+  (per-Stats-ID-prefix resolved/total, via an ad hoc audit script, not committed): most
+  categories went from largely or entirely unresolved to fully resolved — e.g. `POTION`
+  0/11 → 11/11, `SCROLL` 0/14 → 14/14, `FOOD` 0/7 → 7/7, `GRN` 0/25 → 25/25, `LOOT` 4/29 →
+  29/29, `TOOL` 6/14 → 13/14, `FTJ` (unique generated items) 0/6 → 6/6, unnamed-prefix
+  (creature "natural weapon" stat entries, not real inventory items) 0/177 → 148/177,
+  `ARM` 63/119 → 98/119, `WPN` 17/49 → 41/49. See design decisions #8/#9 for what changed.
 
 Per the plan's risk checklist, these are the concrete unknowns still to resolve empirically,
 in priority order:
@@ -178,9 +265,20 @@ cargo run --example dump_lsf -- <path> [entry-name]
 
 1. Manually load a newly saved edited copy in the game before trusting it for real play;
    format-level structural verification cannot prove game compatibility.
-2. Parse `ItemProgression.lsb` and generated-stat inheritance to resolve the exact display
-   names of generated equipment rather than using the current friendly Stat-ID fallback.
-3. Add focused character editing only after confirming the PlayerUpgrade paths and semantics
+2. If the remaining `ARM`/`WPN` "Common"-rarity gap (see "Still incomplete") bothers you,
+   the next thing to check is whether these items' names come from yet another source not
+   yet found — `dump_lsf`/a fresh ad hoc search (like the ones used to find `Stats.lsb` and
+   the real `RG_` namegroup keys this session) against a real `WPN_CraftedDagger`-style item
+   is the way to approach it: find real data first, don't guess a mapping.
+3. If you want ability/attribute/talent names to be authoritative rather than the
+   `BOOST_LABELS` approximation, look for where the game's ability/skill-tree UI actually
+   gets its text — `Stats.lsb`'s `TranslatedStringKeys` table was checked and doesn't have
+   entries for these keys, and `Adjectives/Stats.lsb` is empty.
+4. Consider migrating `progression_handles()`'s byte-scanning hack for `ItemProgression.lsb`
+   to a real parse via the new `format::lsb` reader, now that it exists — same technique
+   used successfully for `Stats.lsb` (look for a `TranslatedStringKeys` region, or whatever
+   `dump`-style inspection reveals `ItemProgression.lsb`'s actual node schema to be).
+5. Add focused character editing only after confirming the PlayerUpgrade paths and semantics
    against real saves. Keep item editing the priority.
-4. Add custom item names/descriptions, tags, ownership changes, then (last) safe new-item
+6. Add custom item names/descriptions, tags, ownership changes, then (last) safe new-item
    creation with GUID/handle allocation.
