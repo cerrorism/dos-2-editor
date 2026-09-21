@@ -1,11 +1,12 @@
 use std::path::PathBuf;
 
 use crate::config;
-use crate::domain::item;
+use crate::domain::{character, item};
 use crate::format::compression::CompressionMethod;
 use crate::format::lsf;
 use crate::format::node::{AttributeValue, Node, NodeAttribute, Resource};
 use crate::format::pak::Pak;
+use crate::gamedata::catalog::StatsCatalog;
 use crate::save_file;
 
 pub struct Dos2EditorApp {
@@ -15,8 +16,11 @@ pub struct Dos2EditorApp {
     status_msg: String,
     resource: Option<Resource>,
     pak: Option<Pak>,
+    catalog: Option<StatsCatalog>,
+    catalog_status: String,
     item_filter: String,
     selected_item: Option<usize>,
+    selected_party: Option<usize>,
 }
 
 impl Default for Dos2EditorApp {
@@ -38,8 +42,11 @@ impl Default for Dos2EditorApp {
             status_msg: String::new(),
             resource: None,
             pak: None,
+            catalog: None,
+            catalog_status: String::new(),
             item_filter: String::new(),
             selected_item: None,
+            selected_party: Some(0),
         }
     }
 }
@@ -48,12 +55,13 @@ impl eframe::App for Dos2EditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                if ui.button("📁 Open Save Folder…").clicked() {
+                if ui.button("Open Save Folder…").clicked() {
                     if let Some(dir) = rfd::FileDialog::new().pick_folder() {
                         self.save_files = save_file::list_savegames(&dir);
                         self.selected_idx = None;
                         self.resource = None;
                         self.pak = None;
+                        self.catalog = None;
                         self.selected_item = None;
                         config::save_save_root(&dir);
                         self.save_root = Some(dir);
@@ -81,8 +89,10 @@ impl eframe::App for Dos2EditorApp {
                         .file_name()
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_default();
-                    let selected = self.selected_idx == Some(idx);
-                    if ui.selectable_label(selected, name).clicked() {
+                    if ui
+                        .selectable_label(self.selected_idx == Some(idx), name)
+                        .clicked()
+                    {
                         self.selected_idx = Some(idx);
                         requested_load = Some(path.clone());
                     }
@@ -96,13 +106,21 @@ impl eframe::App for Dos2EditorApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("DOS2:DE Save Editor");
             if let Some(resource) = &mut self.resource {
-                ui.label("globals.lsf is loaded in memory. The raw tree is editable, but saving is not wired up yet.");
+                ui.label(&self.catalog_status);
                 ui.separator();
-                item_browser(ui, resource, &mut self.item_filter, &mut self.selected_item);
+                party_inventory_editor(
+                    ui,
+                    resource,
+                    self.catalog.as_ref(),
+                    &mut self.item_filter,
+                    &mut self.selected_item,
+                    &mut self.selected_party,
+                );
                 ui.separator();
-                raw_resource_editor(ui, resource);
+                egui::CollapsingHeader::new("Advanced: raw save data")
+                    .show(ui, |ui| raw_resource_editor(ui, resource));
             } else {
-                ui.label("Pick a savegame from the left to load and inspect globals.lsf.");
+                ui.label("Pick a savegame from the left to inspect its party inventories.");
             }
         });
     }
@@ -112,7 +130,9 @@ impl Dos2EditorApp {
     fn load_save(&mut self, path: PathBuf) {
         self.resource = None;
         self.pak = None;
+        self.catalog = None;
         self.selected_item = None;
+        self.selected_party = Some(0);
         let result = Pak::open(&path).and_then(|pak| {
             let resource = lsf::parse(&pak.read("globals.lsf")?)?;
             Ok((pak, resource))
@@ -126,8 +146,27 @@ impl Dos2EditorApp {
                 );
                 self.pak = Some(pak);
                 self.resource = Some(resource);
+                self.load_game_data();
             }
             Err(error) => self.status_msg = format!("Could not load {}: {error}", path.display()),
+        }
+    }
+
+    fn load_game_data(&mut self) {
+        let game_root = PathBuf::from(r"D:\SteamLibrary\steamapps\common\Divinity Original Sin 2");
+        match StatsCatalog::load(&game_root) {
+            Ok(catalog) => {
+                self.catalog_status = format!(
+                    "English item names loaded ({} names from game data).",
+                    catalog.localization_count()
+                );
+                self.catalog = Some(catalog);
+            }
+            Err(error) => {
+                self.catalog_status = format!(
+                    "Game localization was unavailable; showing readable Stat ID fallbacks. ({error})"
+                );
+            }
         }
     }
 
@@ -182,53 +221,101 @@ impl Dos2EditorApp {
 #[derive(Clone)]
 struct ItemListRow {
     index: usize,
+    display_name: String,
     stats_id: String,
     amount: Option<i32>,
     item_type: Option<String>,
 }
 
-fn item_browser(
+fn party_inventory_editor(
     ui: &mut egui::Ui,
     resource: &mut Resource,
+    catalog: Option<&StatsCatalog>,
     filter: &mut String,
     selected_item: &mut Option<usize>,
+    selected_party: &mut Option<usize>,
 ) {
+    let party = character::party_members(resource);
+    ui.heading("Party inventories");
+    ui.horizontal_wrapped(|ui| {
+        for (index, member) in party.iter().enumerate() {
+            let inventory = member.inventory_handle();
+            let count = inventory.map_or(0, |handle| {
+                item::items(resource)
+                    .into_iter()
+                    .filter(|entry| entry.parent_handle() == Some(handle))
+                    .count()
+            });
+            if ui
+                .selectable_label(
+                    *selected_party == Some(index),
+                    format!("{} ({count})", character_name(member)),
+                )
+                .clicked()
+            {
+                *selected_party = Some(index);
+                *selected_item = None;
+            }
+        }
+        if ui
+            .selectable_label(selected_party.is_none(), "All saved items")
+            .clicked()
+        {
+            *selected_party = None;
+            *selected_item = None;
+        }
+    });
+
+    let selected_inventory = selected_party
+        .and_then(|party_index| party.get(party_index))
+        .and_then(character::Character::inventory_handle);
     let filter_lower = filter.to_lowercase();
     let rows: Vec<ItemListRow> = item::items(resource)
         .into_iter()
         .enumerate()
-        .filter_map(|(index, item)| {
-            let stats_id = item.stats_id()?.to_owned();
-            if !filter_lower.is_empty() && !stats_id.to_lowercase().contains(&filter_lower) {
+        .filter_map(|(index, entry)| {
+            if selected_party.is_some() && entry.parent_handle() != selected_inventory {
+                return None;
+            }
+            let stats_id = entry.stats_id()?.to_owned();
+            let display_name = item_name(&entry, catalog);
+            if !filter_lower.is_empty()
+                && !display_name.to_lowercase().contains(&filter_lower)
+                && !stats_id.to_lowercase().contains(&filter_lower)
+            {
                 return None;
             }
             Some(ItemListRow {
                 index,
+                display_name,
                 stats_id,
-                amount: item.amount(),
-                item_type: item.item_type().map(str::to_owned),
+                amount: entry.amount(),
+                item_type: entry.item_type().map(str::to_owned),
             })
         })
         .collect();
 
-    ui.heading(format!("Items ({})", rows.len()));
     ui.horizontal(|ui| {
-        ui.label("Filter Stats ID:");
-        ui.add(egui::TextEdit::singleline(filter).hint_text("e.g. TeleportationGloves"));
+        ui.label(format!("Items ({})", rows.len()));
+        ui.add(egui::TextEdit::singleline(filter).hint_text("Filter by item name"));
     });
     ui.columns(2, |columns| {
         egui::ScrollArea::vertical()
-            .max_height(280.0)
+            .max_height(360.0)
             .show(&mut columns[0], |ui| {
                 for row in &rows {
                     let amount = row
                         .amount
+                        .filter(|amount| *amount > 1)
                         .map(|amount| format!(" ×{amount}"))
                         .unwrap_or_default();
-                    let rarity = row.item_type.as_deref().unwrap_or("-");
-                    let label = format!("#{:03}  {}  [{rarity}]{amount}", row.index, row.stats_id);
+                    let rarity = row.item_type.as_deref().unwrap_or("Item");
                     if ui
-                        .selectable_label(*selected_item == Some(row.index), label)
+                        .selectable_label(
+                            *selected_item == Some(row.index),
+                            format!("{}  [{rarity}]{amount}", row.display_name),
+                        )
+                        .on_hover_text(&row.stats_id)
                         .clicked()
                     {
                         *selected_item = Some(row.index);
@@ -237,19 +324,87 @@ fn item_browser(
             });
         if let Some(index) = *selected_item {
             if let Some(node) = item::item_node_mut(resource, index) {
-                item_editor(&mut columns[1], index, node);
+                item_editor(&mut columns[1], index, node, catalog);
             } else {
                 columns[1].label("The selected item is no longer present.");
                 *selected_item = None;
             }
         } else {
-            columns[1].label("Select an item to edit its existing fields.");
+            columns[1].label("Select an item to view and edit its saved fields.");
         }
     });
 }
 
-fn item_editor(ui: &mut egui::Ui, index: usize, node: &mut Node) {
-    ui.heading(format!("Item #{index}"));
+fn character_name(character: &character::Character<'_>) -> String {
+    character
+        .name()
+        .filter(|name| !name.trim().is_empty())
+        .or_else(|| character.origin_name())
+        .unwrap_or("Unnamed party member")
+        .to_owned()
+}
+
+fn item_name(item: &item::Item<'_>, catalog: Option<&StatsCatalog>) -> String {
+    item.custom_display_name()
+        .filter(|name| !name.trim().is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            item.stats_id().and_then(|stats_id| {
+                catalog
+                    .and_then(|catalog| catalog.display_name(item.current_template(), stats_id))
+                    .map(str::to_owned)
+            })
+        })
+        .unwrap_or_else(|| {
+            item.stats_id()
+                .map(friendly_stat_name)
+                .unwrap_or_else(|| "Unnamed item".into())
+        })
+}
+
+fn friendly_stat_name(stats_id: &str) -> String {
+    const PREFIXES: &[&str] = &[
+        "ARM",
+        "WPN",
+        "LOOT",
+        "CON",
+        "GRN",
+        "SCROLL",
+        "SKILLBOOK",
+        "ITEM",
+        "TOOL",
+        "FOOD",
+        "FUR",
+        "GEN",
+    ];
+    stats_id
+        .split('_')
+        .filter(|part| !part.is_empty() && !PREFIXES.contains(part) && *part != "A" && *part != "B")
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn item_editor(ui: &mut egui::Ui, index: usize, node: &mut Node, catalog: Option<&StatsCatalog>) {
+    let stats_id = node
+        .attr("Stats")
+        .and_then(|attribute| match attribute {
+            AttributeValue::Str(value) => Some(value.as_str()),
+            _ => None,
+        })
+        .unwrap_or_default()
+        .to_owned();
+    let template = node
+        .attr("CurrentTemplate")
+        .and_then(|attribute| match attribute {
+            AttributeValue::Uuid(value) => Some(value),
+            _ => None,
+        });
+    let name = catalog
+        .and_then(|catalog| catalog.display_name(template.copied(), &stats_id))
+        .map(str::to_owned)
+        .unwrap_or_else(|| friendly_stat_name(&stats_id));
+    ui.heading(name);
+    ui.small(format!("Stats ID: {stats_id} · Save item #{index}"));
     string_attribute_editor(ui, node, "Stats");
     integer_attribute_editor(ui, node, "Amount");
     integer_attribute_editor(ui, node, "Slot");
@@ -307,7 +462,6 @@ fn raw_resource_editor(ui: &mut egui::Ui, resource: &mut Resource) {
         for name in names {
             if let Some(region) = resource.regions.get_mut(&name) {
                 egui::CollapsingHeader::new(format!("Region: {name}"))
-                    .default_open(name == "Items" || name == "Characters")
                     .show(ui, |ui| raw_node_editor(ui, region));
             }
         }
@@ -413,5 +567,18 @@ fn raw_attribute_editor(ui: &mut egui::Ui, attribute: &mut NodeAttribute) {
         AttributeValue::None => {
             ui.label("<none>");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::friendly_stat_name;
+
+    #[test]
+    fn derives_a_human_readable_fallback_from_a_stat_id() {
+        assert_eq!(
+            friendly_stat_name("WPN_UNIQUE_ARX_BrahmosSword_2H"),
+            "UNIQUE ARX BrahmosSword 2H"
+        );
     }
 }

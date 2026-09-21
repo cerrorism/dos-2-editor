@@ -1,7 +1,5 @@
-//! Game-data catalog (Data.pak stat/localization parsing) for item
-//! name/rarity resolution. TODO (project plan Phase 5) — start with the
-//! empirical inspection step (run the `dump_pak` example against a real
-//! `Data.pak`) before writing `statfile.rs`'s parser.
+//! Game-data catalog for item-name resolution from the installed Definitive
+//! Edition assets.
 pub mod catalog;
 pub mod localization;
 pub mod statfile;

@@ -12,11 +12,15 @@ out to lslib/Divine.exe at runtime.
 
 ## Status
 
-Early. The binary format layer has passed both synthetic tests and structural
-round trips against a real DOS2:DE save. The app can load that save's `globals.lsf`
-and expose its editable in-memory raw tree; it intentionally cannot write a save yet.
-Item accessors are under way, while the dedicated item/character panels and game-data
-catalog remain to be built. See [CLAUDE.md](CLAUDE.md) for verification details.
+The editor can load a save, show the actual player characters as separate inventory
+tabs, resolve many saved items to their English in-game names, and edit existing item
+fields. **Save Edited Copy** writes a separately named save and verifies its PAK/LSF
+structure before writing; it never overwrites the selected original. The raw save tree
+is available only under **Advanced** for investigation.
+
+Item names come from the installed game's English localization and Shared templates.
+Generated/procedural equipment that has no direct template name is shown using a
+readable Stat-ID fallback for now. See [CLAUDE.md](CLAUDE.md) for verification details.
 
 ## Build
 
@@ -44,10 +48,10 @@ to be run against a real save/game install once one is available.
 
 ```
 src/
-  main.rs, app.rs   — eframe entry point and egui UI (currently a placeholder shell)
+  main.rs, app.rs   — eframe entry point and party-inventory editor UI
   config.rs          — persisted settings (last-used folders)
   save_file.rs        — save-folder discovery
   format/             — PAK container + LSF resource format (DOS2:DE only)
-  domain/              — typed Characters/Items accessors (not yet implemented)
-  gamedata/             — game-install stat/localization catalog (not yet implemented)
+  domain/              — typed Characters/Items accessors
+  gamedata/             — game-install English localization/template catalog
 ```

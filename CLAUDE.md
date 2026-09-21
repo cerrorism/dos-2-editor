@@ -11,12 +11,10 @@ user: **item editing first**, character editing second.
 
 ## Git
 
-Local repo only (no remote) — initialized with `git init`, `main` branch. First commit
-(`Scaffold DOS2:DE savegame editor: PAK/LSF format layer`) covers everything described
-below as "Implemented and passing" — the Phase 0–2 scaffold and format layer. `target/` and
-`*.lsv.bak*` are gitignored. Commit as you go; there's no other backstop for this work.
+The repository is on `main` and pushes to `git@github.com:cerrorism/dos-2-editor.git`.
+`target/` and `*.lsv.bak*` are gitignored. Commit as you go.
 
-## Status (Phases 0–2 done; Phase 3 started and verified against a real save)
+## Status (format, safe edited-copy workflow, party inventory UI, and first English catalog done)
 
 **Implemented and passing `cargo test` (12/12) + clean `cargo clippy --all-targets`:**
 - `src/format/primitives.rs` — LE byte cursor `Reader`/`Writer`, plus GUID read/write via
@@ -43,29 +41,31 @@ below as "Implemented and passing" — the Phase 0–2 scaffold and format layer
   loose `.lsf` or extracted from a `.lsv` (`cargo run --example dump_lsf -- save.lsv
   globals.lsf`). **This is the tool to run first once a real save is available** — it
   directly confirms or corrects every Characters/Items node-path assumption in the plan.
-- `src/app.rs`/`main.rs`/`config.rs`/`save_file.rs` — Phase 0 scaffold only: an egui window
-  with a folder picker and a savegame list. Selecting a save now loads/parses `globals.lsf`
-  into memory and presents an editable raw tree; the UI deliberately has no write button yet.
+- `src/app.rs`/`main.rs`/`config.rs`/`save_file.rs` — an egui editor with save-folder picker,
+  save list, party inventory tabs, focused item editor, and an Advanced-only raw tree.
 - `src/domain/item.rs` — thin typed item views/mutators for the verified Items hierarchy,
   including `Stats`, `Amount`, nested stats/rune/`PermanentBoost` values, and same-index
   Creator handles. `examples/dump_items.rs` prints the typed real-save summary (an optional
   item index prints its complete raw node for schema investigation).
-- `src/app.rs` also has the first item-first panel: a Stats-ID search list and focused
-  editor for existing Stats, Amount, Slot, nested Level/name indices, rune slots, and
-  PermanentBoost fields. “Save Edited Copy” validates a complete PAK/LSF reparse and writes
-  a separate non-clobbering sibling copy, never the selected original.
+- `src/app.rs` has an item-first panel grouped by the verified owner inventory handles of
+  actual player characters. It resolves saved item names from the game English localization
+  and Shared root templates where possible, with a readable Stat-ID fallback otherwise.
+  The focused editor exposes existing Stats, Amount, Slot, nested Level/name indices, rune
+  slots, and PermanentBoost fields. “Save Edited Copy” validates a complete PAK/LSF reparse
+  and writes a separate non-clobbering sibling copy, never the selected original.
+- `src/domain/character.rs` identifies player characters from `Stats.IsPlayer`, reads custom
+  player name/origin fallback, and follows their inventory handles. The supplied save yields
+  Fane (23), Ifan (20), 洛思/Lohse (65), and Beast (20) inventory items.
+- `src/gamedata/localization.rs`/`catalog.rs` parse `English.pak` and `Shared.pak` directly:
+  92,210 English entries, 2,587 template names, and 505 stat names were observed.
 - `examples/roundtrip_lsf.rs` / `examples/roundtrip_pak.rs` — non-mutating real-file
   round-trip verifiers.
 
-**Still not started / incomplete:**
-- `src/domain/character.rs` remains an empty stub. `src/domain/item.rs` is a deliberately
-  partial Phase 3/4 implementation; custom name/description, tags, ownership editing,
-  per-owner inventory grouping, and all write-path work remain.
-- `src/gamedata/*` — empty stubs. Phase 5 in the plan (game-data stat/localization catalog
-  for item names/rarity) — the user explicitly wants this built early, not deferred, once
-  the domain layer exists.
-- The character UI remains unimplemented. The item editor is deliberately restricted to
-  existing fields; only the verified, non-clobbering edited-copy write path is exposed.
+**Still incomplete:**
+- Procedural/generated equipment needs the `ItemProgression.lsb` mapping before its exact
+  generated in-game name can be resolved; the current readable fallback is intentional.
+- Character editing, custom item name/description, tags, ownership changes, and new-item
+  creation remain unimplemented. The item editor deliberately edits existing fields only.
 - `src/domain/ids.rs` — empty stub for Phase 7 (new-item creation / GUID minting) —
   explicitly lower priority, no prior art exists anywhere (confirmed during planning).
 
@@ -174,17 +174,11 @@ cargo run --example dump_lsf -- <path> [entry-name]
 
 ## Suggested next steps for whoever picks this up
 
-1. Re-read the plan file (path at the top of this doc) in full — it has the complete
-   Characters/Items node-path and attribute tables that Phase 3 needs to transcribe into
-   `domain/character.rs`/`domain/item.rs`.
-2. If a real save is available yet, run `dump_pak`/`dump_lsf` against it first and record
-   findings in this file before writing domain code against possibly-wrong assumptions.
-3. Implement `domain/item.rs` first (explicit user priority): typed accessors per the
-   plan's Items table (`Stats` id, `Amount`, rune slots, `CustomDisplayName`/
-   `CustomDescription`, `PermanentBoost` bag, tags, ownership), backed by
-   `format::node::Node`.
-4. Wire a real "load a .lsv, extract+parse globals.lsf, show something real" path into
-   `app.rs`'s currently-placeholder UI — even a raw tree view (Phase 3's fallback UI) would
-   make this tool minimally useful and testable end-to-end for the first time.
-5. Follow the plan's phase order after that (item UI → gamedata catalog → character UI →
-   stretch new-item-creation goal).
+1. Manually load a newly saved edited copy in the game before trusting it for real play;
+   format-level structural verification cannot prove game compatibility.
+2. Parse `ItemProgression.lsb` and generated-stat inheritance to resolve the exact display
+   names of generated equipment rather than using the current friendly Stat-ID fallback.
+3. Add focused character editing only after confirming the PlayerUpgrade paths and semantics
+   against real saves. Keep item editing the priority.
+4. Add custom item names/descriptions, tags, ownership changes, then (last) safe new-item
+   creation with GUID/handle allocation.

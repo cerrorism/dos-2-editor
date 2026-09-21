@@ -3,6 +3,7 @@
 //! This is deliberately a thin layer over [`Node`]. Unmodelled fields remain
 //! available unchanged through the generic format tree.
 use crate::format::node::{AttributeType, AttributeValue, Node, Resource};
+use uuid::Uuid;
 
 /// Saved items and their same-index `Creator` records. DOS2 stores the two
 /// lists in parallel rather than nesting creators under each item.
@@ -72,6 +73,15 @@ impl<'a> Item<'a> {
     }
     pub fn slot(&self) -> Option<u16> {
         u16_attr(self.node, "Slot")
+    }
+    pub fn current_template(&self) -> Option<Uuid> {
+        match self.node.attr("CurrentTemplate")? {
+            AttributeValue::Uuid(value) => Some(*value),
+            _ => None,
+        }
+    }
+    pub fn parent_handle(&self) -> Option<u64> {
+        u64_attr(self.node, "Parent")
     }
     /// DOS2's item owner is an engine handle (`ULongLong`), not an LSF UUID.
     pub fn original_owner(&self) -> Option<u64> {
