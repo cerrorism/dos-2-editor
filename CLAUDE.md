@@ -52,7 +52,8 @@ below as "Implemented and passing" — the Phase 0–2 scaffold and format layer
   item index prints its complete raw node for schema investigation).
 - `src/app.rs` also has the first item-first panel: a Stats-ID search list and focused
   editor for existing Stats, Amount, Slot, nested Level/name indices, rune slots, and
-  PermanentBoost fields. It works in memory only until the safe write path is added.
+  PermanentBoost fields. “Save Edited Copy” validates a complete PAK/LSF reparse and writes
+  a separate non-clobbering sibling copy, never the selected original.
 - `examples/roundtrip_lsf.rs` / `examples/roundtrip_pak.rs` — non-mutating real-file
   round-trip verifiers.
 
@@ -63,8 +64,8 @@ below as "Implemented and passing" — the Phase 0–2 scaffold and format layer
 - `src/gamedata/*` — empty stubs. Phase 5 in the plan (game-data stat/localization catalog
   for item names/rarity) — the user explicitly wants this built early, not deferred, once
   the domain layer exists.
-- The character UI and save-write UI remain unimplemented. The item editor is intentionally
-  restricted to modifying in-memory values until scratch-copy backup/reload testing exists.
+- The character UI remains unimplemented. The item editor is deliberately restricted to
+  existing fields; only the verified, non-clobbering edited-copy write path is exposed.
 - `src/domain/ids.rs` — empty stub for Phase 7 (new-item creation / GUID minting) —
   explicitly lower priority, no prior art exists anywhere (confirmed during planning).
 

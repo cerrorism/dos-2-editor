@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use crate::config;
 use crate::domain::item;
+use crate::format::compression::CompressionMethod;
 use crate::format::lsf;
 use crate::format::node::{AttributeValue, Node, NodeAttribute, Resource};
 use crate::format::pak::Pak;
@@ -13,6 +14,7 @@ pub struct Dos2EditorApp {
     selected_idx: Option<usize>,
     status_msg: String,
     resource: Option<Resource>,
+    pak: Option<Pak>,
     item_filter: String,
     selected_item: Option<usize>,
 }
@@ -35,6 +37,7 @@ impl Default for Dos2EditorApp {
             selected_idx: None,
             status_msg: String::new(),
             resource: None,
+            pak: None,
             item_filter: String::new(),
             selected_item: None,
         }
@@ -50,10 +53,19 @@ impl eframe::App for Dos2EditorApp {
                         self.save_files = save_file::list_savegames(&dir);
                         self.selected_idx = None;
                         self.resource = None;
+                        self.pak = None;
                         self.selected_item = None;
                         config::save_save_root(&dir);
                         self.save_root = Some(dir);
                     }
+                }
+                let can_save =
+                    self.resource.is_some() && self.pak.is_some() && self.selected_idx.is_some();
+                if ui
+                    .add_enabled(can_save, egui::Button::new("Save Edited Copy…"))
+                    .clicked()
+                {
+                    self.save_edited_copy();
                 }
                 ui.separator();
                 ui.label(&self.status_msg);
@@ -99,20 +111,70 @@ impl eframe::App for Dos2EditorApp {
 impl Dos2EditorApp {
     fn load_save(&mut self, path: PathBuf) {
         self.resource = None;
+        self.pak = None;
         self.selected_item = None;
-        let result = Pak::open(&path)
-            .and_then(|pak| pak.read("globals.lsf"))
-            .and_then(|bytes| lsf::parse(&bytes));
+        let result = Pak::open(&path).and_then(|pak| {
+            let resource = lsf::parse(&pak.read("globals.lsf")?)?;
+            Ok((pak, resource))
+        });
         match result {
-            Ok(resource) => {
+            Ok((pak, resource)) => {
                 self.status_msg = format!(
                     "Loaded {} ({} regions)",
                     path.display(),
                     resource.regions.len()
                 );
+                self.pak = Some(pak);
                 self.resource = Some(resource);
             }
             Err(error) => self.status_msg = format!("Could not load {}: {error}", path.display()),
+        }
+    }
+
+    fn save_edited_copy(&mut self) {
+        let Some(original_path) = self
+            .selected_idx
+            .and_then(|index| self.save_files.get(index))
+            .cloned()
+        else {
+            self.status_msg = "No save is selected.".into();
+            return;
+        };
+        let Some(resource) = &self.resource else {
+            self.status_msg = "No globals.lsf resource is loaded.".into();
+            return;
+        };
+        let Some(mut pak) = self.pak.clone() else {
+            self.status_msg = "No save package is loaded.".into();
+            return;
+        };
+
+        let rewritten_lsf = lsf::serialize(resource, CompressionMethod::Zlib);
+        let result = pak
+            .set_file("globals.lsf", &rewritten_lsf)
+            .map(|_| pak.to_bytes())
+            .and_then(|bytes| {
+                let verify_pak = Pak::parse(&bytes)?;
+                let verify_resource = lsf::parse(&verify_pak.read("globals.lsf")?)?;
+                if verify_resource != *resource {
+                    return Err(
+                        "saved globals.lsf did not structurally match the in-memory edit".into(),
+                    );
+                }
+                Ok(bytes)
+            });
+        match result {
+            Ok(bytes) => {
+                let output_path = save_file::make_edited_copy_path(&original_path);
+                match std::fs::write(&output_path, bytes) {
+                    Ok(()) => {
+                        self.status_msg =
+                            format!("Wrote verified edited copy: {}", output_path.display())
+                    }
+                    Err(error) => self.status_msg = format!("Could not write edited copy: {error}"),
+                }
+            }
+            Err(error) => self.status_msg = format!("Could not validate edited copy: {error}"),
         }
     }
 }

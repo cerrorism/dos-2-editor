@@ -50,14 +50,19 @@ pub fn list_savegames(player_profiles_root: &Path) -> Vec<PathBuf> {
 }
 
 fn collect_lsv_files(dir: &Path, depth: u32, out: &mut Vec<(PathBuf, std::time::SystemTime)>) {
-    let Ok(entries) = fs::read_dir(dir) else { return };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
             if depth > 0 {
                 collect_lsv_files(&path, depth - 1, out);
             }
-        } else if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("lsv")) {
+        } else if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("lsv"))
+        {
             if let Ok(modified) = entry.metadata().and_then(|m| m.modified()) {
                 out.push((path, modified));
             }
@@ -79,5 +84,47 @@ pub fn make_backup_path(save_path: &Path) -> PathBuf {
             return c;
         }
         n += 1;
+    }
+}
+
+/// Builds a non-clobbering sibling path for the app's safe first write mode:
+/// `<name> - Edited.lsv`, then `Edited 2`, etc. The original is never
+/// overwritten by this path.
+pub fn make_edited_copy_path(save_path: &Path) -> PathBuf {
+    let parent = save_path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = save_path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("save");
+    let extension = save_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .unwrap_or("lsv");
+    let mut number = 1u32;
+    loop {
+        let suffix = if number == 1 {
+            String::new()
+        } else {
+            format!(" {number}")
+        };
+        let path = parent.join(format!("{stem} - Edited{suffix}.{extension}"));
+        if !path.exists() {
+            return path;
+        }
+        number += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn edited_copy_path_keeps_original_name_and_extension() {
+        let path = Path::new(r"C:\saves\Edit.lsv");
+        assert_eq!(
+            make_edited_copy_path(path),
+            PathBuf::from(r"C:\saves\Edit - Edited.lsv")
+        );
     }
 }

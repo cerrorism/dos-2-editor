@@ -1,7 +1,7 @@
 # dos-2-editor — development notes / handover
 
 **Plan file** (the source of truth for scope, phasing, and the full DOS2:DE domain-knowledge
-tables for Characters/Items): `C:\Users\cerro\.Codex\plans\we-are-going-to-keen-canyon.md`
+tables for Characters/Items): `C:\Users\cerro\.claude\plans\we-are-going-to-keen-canyon.md`
 on the user's machine. Read it before doing anything else — this file is a status/handover
 summary, not a replacement for it.
 
@@ -45,7 +45,9 @@ below as "Implemented and passing" — the Phase 0–2 scaffold and format layer
   directly confirms or corrects every Characters/Items node-path assumption in the plan.
 - `src/app.rs`/`main.rs`/`config.rs`/`save_file.rs` — Phase 0 scaffold only: an egui window
   with a folder picker and a savegame list. Selecting a save now loads/parses `globals.lsf`
-  into memory and presents an editable raw tree; the UI deliberately has no write button yet.
+  into memory and presents an editable raw tree. “Save Edited Copy” validates a full
+  PAK/LSF reparse before writing a non-clobbering sibling copy; it never overwrites the
+  selected original save.
 - `src/domain/item.rs` — thin typed item views/mutators for the verified Items hierarchy,
   including `Stats`, `Amount`, nested stats/rune/`PermanentBoost` values, and same-index
   Creator handles. `examples/dump_items.rs` prints the typed real-save summary (an optional
@@ -60,8 +62,8 @@ below as "Implemented and passing" — the Phase 0–2 scaffold and format layer
 - `src/gamedata/*` — empty stubs. Phase 5 in the plan (game-data stat/localization catalog
   for item names/rarity) — the user explicitly wants this built early, not deferred, once
   the domain layer exists.
-- The actual item/character editing UI in `app.rs` — currently just a save-file picker
-  shell, no save is actually loaded/parsed/edited yet.
+- The character UI is unimplemented. The item editor is intentionally limited to existing
+  fields, and the first write mode always produces a separate edited copy.
 - `src/domain/ids.rs` — empty stub for Phase 7 (new-item creation / GUID minting) —
   explicitly lower priority, no prior art exists anywhere (confirmed during planning).
 
