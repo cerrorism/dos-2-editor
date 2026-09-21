@@ -63,8 +63,9 @@ The repository is on `main` and pushes to `git@github.com:cerrorism/dos-2-editor
   round-trip verifiers.
 
 **Still incomplete:**
-- Procedural/generated equipment needs the `ItemProgression.lsb` mapping before its exact
-  generated in-game name can be resolved; the current readable fallback is intentional.
+- Generated armor title lookup now combines `ItemProgressionNames.txt`, the translation
+  handles in `ItemProgression.lsb`, and the selected localization pack. Other generated
+  categories still need the full ItemProgression group-selection map.
 - Character editing, custom item name/description, tags, ownership changes, and new-item
   creation remain unimplemented. The item editor deliberately edits existing fields only.
 - `src/domain/ids.rs` — empty stub for Phase 7 (new-item creation / GUID minting) —

@@ -301,7 +301,7 @@ fn party_inventory_editor(
             if ui
                 .selectable_label(
                     *selected_party == Some(index),
-                    format!("{} ({count})", character_name(member)),
+                    format!("{} ({count})", character_name(member, catalog)),
                 )
                 .clicked()
             {
@@ -415,13 +415,15 @@ fn item_list_section<'a>(
     }
 }
 
-fn character_name(character: &character::Character<'_>) -> String {
-    character
+fn character_name(character: &character::Character<'_>, catalog: Option<&StatsCatalog>) -> String {
+    let name = character
         .name()
         .filter(|name| !name.trim().is_empty())
         .or_else(|| character.origin_name())
-        .unwrap_or("Unnamed party member")
-        .to_owned()
+        .unwrap_or("Unnamed party member");
+    catalog
+        .map(|catalog| catalog.localized_text(name))
+        .unwrap_or_else(|| name.to_owned())
 }
 
 fn item_name(item: &item::Item<'_>, catalog: Option<&StatsCatalog>) -> String {
@@ -432,6 +434,21 @@ fn item_name(item: &item::Item<'_>, catalog: Option<&StatsCatalog>) -> String {
             item.stats_id().and_then(|stats_id| {
                 catalog
                     .and_then(|catalog| catalog.display_name(item.current_template(), stats_id))
+                    .map(str::to_owned)
+            })
+        })
+        .or_else(|| {
+            item.stats_id().and_then(|stats_id| {
+                catalog
+                    .and_then(|catalog| {
+                        catalog.generated_name(
+                            stats_id,
+                            item.item_type(),
+                            item.level(),
+                            item.level_group_index(),
+                            item.name_index(),
+                        )
+                    })
                     .map(str::to_owned)
             })
         })
@@ -479,10 +496,40 @@ fn item_editor(ui: &mut egui::Ui, index: usize, node: &mut Node, catalog: Option
             AttributeValue::Uuid(value) => Some(value),
             _ => None,
         });
+    let level = node
+        .child("Stats")
+        .and_then(|stats| integer_attribute(stats, "Level"));
+    let level_group_index = node
+        .child("Stats")
+        .and_then(|stats| integer_attribute(stats, "LevelGroupIndex"));
+    let name_index = node
+        .child("Stats")
+        .and_then(|stats| integer_attribute(stats, "NameIndex"));
+    let item_type = node
+        .child("Stats")
+        .and_then(|stats| match stats.attr("ItemType") {
+            Some(AttributeValue::Str(value)) => Some(value.as_str()),
+            _ => None,
+        });
     let name = catalog
-        .and_then(|catalog| catalog.display_name(template.copied(), &stats_id))
+        .and_then(|catalog| {
+            catalog
+                .display_name(template.copied(), &stats_id)
+                .or_else(|| {
+                    catalog.generated_name(
+                        &stats_id,
+                        item_type,
+                        level,
+                        level_group_index,
+                        name_index,
+                    )
+                })
+        })
         .map(str::to_owned)
         .unwrap_or_else(|| friendly_stat_name(&stats_id));
+    let generated_boosts = generated_boost_ids(node);
+    let generated_details = catalog
+        .map(|catalog| catalog.generated_item_details(&stats_id, generated_boosts.iter().cloned()));
     ui.heading(name);
     ui.small(format!("Stats ID: {stats_id} · Save item #{index}"));
     string_attribute_editor(ui, node, "Stats");
@@ -510,11 +557,26 @@ fn item_editor(ui: &mut egui::Ui, index: usize, node: &mut Node, catalog: Option
             permanent_boost_editor(ui, boosts);
         }
     }
+    if let Some(details) = generated_details {
+        generated_item_card(ui, &details);
+    }
     if let Some(generation) = node
         .child_mut("Generation")
         .and_then(|node| node.child_mut("ItemGeneration"))
     {
         generated_bonus_editor(ui, generation);
+    }
+}
+
+fn integer_attribute(node: &Node, name: &str) -> Option<i32> {
+    match node.attr(name)? {
+        AttributeValue::I32(value) => Some(*value),
+        AttributeValue::I16(value) => Some((*value).into()),
+        AttributeValue::I8(value) => Some((*value).into()),
+        AttributeValue::U8(value) => Some((*value).into()),
+        AttributeValue::U16(value) => Some((*value).into()),
+        AttributeValue::U32(value) => i32::try_from(*value).ok(),
+        _ => None,
     }
 }
 
@@ -550,25 +612,56 @@ fn permanent_boost_editor(ui: &mut egui::Ui, boosts: &mut Node) {
         });
 }
 
+fn generated_boost_ids(node: &Node) -> Vec<String> {
+    node.child("Generation")
+        .and_then(|generation| generation.child("ItemGeneration"))
+        .map(|generation| {
+            generation
+                .children_of("Boost")
+                .iter()
+                .filter_map(|boost| match boost.attr("Object") {
+                    Some(AttributeValue::Str(value)) => Some(value.clone()),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn generated_item_card(
+    ui: &mut egui::Ui,
+    details: &crate::gamedata::catalog::GeneratedItemDetails,
+) {
+    if details.requirements.is_empty() && details.bonuses.is_empty() {
+        return;
+    }
+    ui.separator();
+    ui.label("Item effects");
+    for bonus in &details.bonuses {
+        ui.label(bonus);
+    }
+    for requirement in &details.requirements {
+        ui.small(requirement);
+    }
+}
+
 fn generated_bonus_editor(ui: &mut egui::Ui, generation: &mut Node) {
     let Some(boosts) = generation.children.get_mut("Boost") else {
         return;
     };
-    egui::CollapsingHeader::new("Generated item bonuses")
-        .default_open(true)
-        .show(ui, |ui| {
-            ui.small("These are the rolled bonus definitions saved on this generated item.");
-            for (index, boost) in boosts.iter_mut().enumerate() {
-                ui.horizontal(|ui| {
-                    ui.label(format!("Bonus {}", index + 1));
-                    if let Some(attribute) = boost.attributes.get_mut("Object") {
-                        raw_attribute_editor(ui, attribute);
-                    } else {
-                        ui.label("<missing>");
-                    }
-                });
-            }
-        });
+    egui::CollapsingHeader::new("Advanced: generated item recipe").show(ui, |ui| {
+        ui.small("Editing these internal IDs changes the rolled bonus recipe.");
+        for (index, boost) in boosts.iter_mut().enumerate() {
+            ui.horizontal(|ui| {
+                ui.label(format!("Bonus {}", index + 1));
+                if let Some(attribute) = boost.attributes.get_mut("Object") {
+                    raw_attribute_editor(ui, attribute);
+                } else {
+                    ui.label("<missing>");
+                }
+            });
+        }
+    });
 }
 
 fn string_attribute_editor(ui: &mut egui::Ui, node: &mut Node, name: &str) {

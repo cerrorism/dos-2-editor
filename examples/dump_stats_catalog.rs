@@ -46,6 +46,20 @@ fn main() {
                 }
             }
         }
+        for value in item::items(&resource).into_iter().filter(|value| {
+            value.stats_id() == Some("ARM_Light_UpperBody") && value.level() == Some(5)
+        }) {
+            println!(
+                "generated ARM_Light_UpperBody => {:?}",
+                catalog.generated_name(
+                    "ARM_Light_UpperBody",
+                    value.item_type(),
+                    value.level(),
+                    value.level_group_index(),
+                    value.name_index(),
+                )
+            );
+        }
         println!("shown {shown} resolved item names");
     }
 }

@@ -20,8 +20,9 @@ is available only under **Advanced** for investigation.
 
 Item names come from the installed game's English or Simplified Chinese localization and
 Shared templates; choose the display language in the top bar.
-Generated/procedural equipment that has no direct template name is shown using a
-readable Stat-ID fallback for now. See [CLAUDE.md](CLAUDE.md) for verification details.
+Generated armor now resolves its progression title and rolled attribute bonuses from the
+installed game data; unsupported generated categories retain a readable Stat-ID fallback.
+See [CLAUDE.md](CLAUDE.md) for verification details.
 
 ## Build
 
